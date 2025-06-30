@@ -12,7 +12,7 @@
 ;; set tab bar-mode to always true
 (setq tab-bar-mode t)
 ;; set theme
-(load-theme 'catppuccin t)
+(load-theme 'atom-one-dark t)
 
 ;;;;Org mode configuration
 ;; Enable Org mode
@@ -23,14 +23,19 @@
 
 (setq org-todo-keywords
   '((sequence "TODO" "IN-PROGRESS" "WAITING" "DONE")))
+
+(global-set-key "\C-ca" 'org-agenda)
+
 (custom-set-variables
  ;; custom-set-variables was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  '(custom-safe-themes
-   '("37c8c2817010e59734fe1f9302a7e6a2b5e8cc648cf6a6cc8b85f3bf17fececf" default))
+   '("37c8c2817010e59734fe1f9302a7e6a2b5e8cc648cf6a6cc8b85f3bf17fececf"
+     default))
  '(delete-selection-mode nil)
+ '(org-agenda-files '("~/work_in_progress/learning_experiments/org_mode/1.org"))
  '(package-selected-packages '(markdown-mode)))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
@@ -74,3 +79,66 @@
    (lambda ()
      (org-sort-entries nil ?a))
    nil 'tree))
+
+
+;; --- This is for archiving stuff
+;; --- Helper Function ---
+;; This function checks if a given headline and its entire subtree are "DONE".
+
+(defun my-org-subtree-is-all-done-p (headline)
+  "Check if HEADLINE and all its descendant headlines are in a 'DONE' state.
+A headline with no TODO keyword is considered not done.
+This function respects the user's `org-done-keywords` variable.
+Returns t if the entire subtree is done, nil otherwise."
+  (let ((all-done t)
+        (todo-kw (org-element-property :todo-keyword headline)))
+    ;; 1. Check if the headline itself is in a DONE state.
+    ;; It must have a keyword, and that keyword must be in `org-done-keywords`.
+    (unless (and todo-kw (member todo-kw org-done-keywords))
+      (setq all-done nil))
+
+    ;; 2. If the headline is DONE, recursively check its children.
+    ;; We can short-circuit if all-done is already nil.
+    (when all-done
+      (org-element-map (org-element-contents headline) 'headline
+        (lambda (child)
+          ;; If we find any child that is not fully done,
+          ;; we mark the parent subtree as not done and stop checking.
+          (unless (my-org-subtree-is-all-done-p child)
+            (setq all-done nil)))))
+    all-done))
+
+
+;; --- Main Interactive Function ---
+;; This is the function you will call to perform the archival.
+
+(defun my-org-archive-fully-completed-subtrees ()
+  "Archive the highest-level headlines that are DONE and have all children also DONE."
+  (interactive)
+  (let ((locations-to-archive '()))
+    ;; --- PASS 1: Find the top-most, fully completed subtrees ---
+    (org-element-map (org-element-parse-buffer) 'headline
+      (lambda (headline)
+        ;; Check if the current headline and all its descendants are DONE.
+        (if (my-org-subtree-is-all-done-p headline)
+            (progn
+              ;; If yes, add its location to our list.
+              (push (org-element-property :begin headline) locations-to-archive)
+              ;; And return t to prevent `org-element-map` from descending
+              ;; into its children, as the whole parent will be archived.
+              t)
+          ;; If no, return nil to allow the search to continue in its children.
+          nil)))
+
+    ;; --- PASS 2: Archive the identified subtrees from bottom to top ---
+    (if locations-to-archive
+        (progn
+          (save-excursion
+            ;; `push` creates a list of locations from the end of the buffer
+            ;; to the beginning, so we can iterate through it directly to
+            ;; ensure safe modification.
+            (dolist (location locations-to-archive)
+              (goto-char location)
+              (org-archive-subtree)))
+          (message "Archived %d fully completed subtrees." (length locations-to-archive)))
+      (message "No fully completed subtrees found to archive."))))
