@@ -3,6 +3,8 @@
 ;; set the themes directory
 
 (add-to-list 'custom-theme-load-path "/home/rijan/.emacs.d/themes/")
+(load-theme 'zenburn t)
+
 ;; Disable the splash screen (to enable it agin, replace the t with 0)
 (setq inhibit-splash-screen t)
 
@@ -11,15 +13,14 @@
 
 ;; set tab bar-mode to always true
 (setq tab-bar-mode t)
-;; set theme
-(load-theme 'atom-one-dark t)
+
 
 ;;;;Org mode configuration
 ;; Enable Org mode
 (require 'org)
-;; Make Org mode work with files ending in .org
-;; (add-to-list 'auto-mode-alist '("\\.org$" . org-mode))
-;; The above is the default in recent emacsen
+;; Make Org mode work with files ending in .org. This is default in recent
+;; Emacs versions, but uncommenting ensures it works on all versions.
+(add-to-list 'auto-mode-alist '("\\.org$" . org-mode))
 
 (setq org-todo-keywords
   '((sequence "TODO" "IN-PROGRESS" "WAITING" "DONE")))
@@ -142,3 +143,61 @@ Returns t if the entire subtree is done, nil otherwise."
               (org-archive-subtree)))
           (message "Archived %d fully completed subtrees." (length locations-to-archive)))
       (message "No fully completed subtrees found to archive."))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Final Recommended Task Metadata Configuration
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(with-eval-after-load 'org
+
+  ;; --- 1. Tag Configuration (with Correct Exclusivity) ---
+  ;; This setup enables the helpful visual tag buffer when you press C-c C-q.
+  (setq org-tag-alist
+        '(;; The `t` at the end of the group makes it exclusive.
+          (:startgroup . "Priority")
+          ("HIGH" . ?h) ("MEDIUM" . ?m) ("LOW" . ?l) ("NoD" . ?n)
+          (:endgroup . t)
+
+          (:startgroup . "Personnel")
+          ("SOLO" . ?s) ("TEAM" . ?t)
+          (:endgroup . t)
+
+          ;; This group has no `t`, so it is NOT exclusive.
+          (:startgroup . "Type")
+          ("Reading" . ?r) ("Writing" . ?w) ("Programming" . ?p)
+          (:endgroup)))
+
+  ;; --- The line below enables "expert" mode. It is commented out ---
+  ;; --- so you get the standard, one-key-at-a-time behavior you liked. ---
+  ;; (setq org-fast-tag-selection-single-key 'expert)
+
+
+  ;; --- 2. Time Cost using the Standard 'Effort' Property (in minutes) ---
+  ;; This ensures compatibility with built-in Org functions.
+  (setq org-effort-durations '(("m" . 1)))
+
+  ;; Provides completion hints for the Effort property.
+  (setq org-global-properties
+        '(("Effort_ALL" . "5 10 15 20 25 30 45 60 90 120 180")))
+
+  ;; Helper function to quickly set the Effort property.
+  (defun my/org-set-effort-minutes (&optional minutes)
+    "Set the Effort property (in minutes) on the current Org heading."
+    (interactive)
+    (unless (org-before-first-heading-p)
+      (let* ((current (org-entry-get (point) "Effort"))
+             (prompt (if current
+                         (format "Effort (minutes) [%s]: " current)
+                       "Effort (minutes): "))
+             (val (or minutes (read-number prompt nil))))
+        (org-entry-put (point) "Effort" (number-to-string (max 0 (round val))))
+        (message "Set Effort to %s minutes" (org-entry-get (point) "Effort")))))
+
+  ;; A convenient keybinding in Org buffers to set Effort quickly.
+  (define-key org-mode-map (kbd "C-c m") #'my/org-set-effort-minutes)
+
+
+  ;; --- 3. Column View with Summation ---
+  ;; This displays the Effort property and sums it up for parent tasks.
+  (setq org-columns-default-format "%50ITEM(Task) %10TODO %10Effort{+}")
+)
