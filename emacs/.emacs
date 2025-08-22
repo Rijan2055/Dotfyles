@@ -1,32 +1,43 @@
 ;; -*- mode: elisp -*-
 
-;; set the themes directory
+;; Required libraries
+(require 'cl-lib)
 
+;; set the themes directory
 (add-to-list 'custom-theme-load-path "/home/rijan/.emacs.d/themes/")
 (load-theme 'zenburn t)
 
-;; Disable the splash screen (to enable it agin, replace the t with 0)
+;; Disable the splash screen (to enable it again, replace the t with 0)
 (setq inhibit-splash-screen t)
 
 ;; Enable transient mark mode
 (transient-mark-mode 1)
 
-;; set tab bar-mode to always true
-(setq tab-bar-mode t)
-
+;; FIXED: Properly enable tab bar mode
+(tab-bar-mode 1)
 
 ;;;;Org mode configuration
 ;; Enable Org mode
 (require 'org)
+
 ;; Make Org mode work with files ending in .org. This is default in recent
 ;; Emacs versions, but uncommenting ensures it works on all versions.
 (add-to-list 'auto-mode-alist '("\\.org$" . org-mode))
 
+;; Enhanced TODO keywords with more logical flow
 (setq org-todo-keywords
-  '((sequence "TODO" "IN-PROGRESS" "WAITING" "DONE")))
+      '((sequence "TODO(t)" "STARTED(s)" "WAITING(w@/!)" "|" "DONE(d!)" "CANCELLED(c@)")))
 
-(global-set-key "\C-ca" 'org-agenda)
+;; Add timestamps when tasks are marked DONE or CANCELLED
+(setq org-log-done 'time)
+(setq org-log-into-drawer t)
 
+;; Global key bindings
+(global-set-key (kbd "C-c a") 'org-agenda)
+(global-set-key (kbd "C-c c") 'org-capture)
+(global-set-key (kbd "C-c l") 'org-store-link)
+
+;; Custom settings (keeping your existing ones)
 (custom-set-variables
  ;; custom-set-variables was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
@@ -44,48 +55,60 @@
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  )
-;; this changes the location of the auto-saves to save me from the clutter of auto-save files
-;; Directory where you want to save your auto-save files
+
+;; Enhanced auto-save configuration with better error handling
 (defvar my-auto-save-directory (expand-file-name "~/emacs_auto_saves/"))
 
-;; Ensure the auto-save directory exists
-(unless (file-exists-p my-auto-save-directory)
-  (make-directory my-auto-save-directory t))
+;; Ensure the auto-save directory exists with proper error handling
+(condition-case nil
+    (unless (file-exists-p my-auto-save-directory)
+      (make-directory my-auto-save-directory t))
+  (error (message "Warning: Could not create auto-save directory %s" my-auto-save-directory)))
 
 ;; Set up the transformation rules for auto-save files
-(setq auto-save-file-name-transforms
-      `((".*" ,my-auto-save-directory t)))
+(when (file-exists-p my-auto-save-directory)
+  (setq auto-save-file-name-transforms
+        `((".*" ,my-auto-save-directory t))))
 
-;; this bit of code is supposed to delete autosave files on manaul saving
+;; Better backup and auto-save configuration
+(setq make-backup-files nil
+      delete-auto-save-files t
+      auto-save-default t
+      auto-save-timeout 20
+      auto-save-interval 200)
 
-(setq make-backup-files nil)
-
-(setq delete-auto-save-files t)
-
-;; delete done tasks in org buffer
-
-(defun delete-all-done-tasks ()
-  "Delete all DONE tasks in the current buffer."
+;; IMPROVED: Archive completed tasks instead of deleting them
+(defun archive-all-done-tasks ()
+  "Archive all DONE and CANCELLED tasks in the current buffer to archive file."
   (interactive)
-  (org-map-entries
-   (lambda ()
-     (when (member (org-get-todo-state) '("DONE"))
-       (delete-region (point-at-bol) (1+ (point-at-eol)))))
-   "/DONE" 'file))
+  (let ((count 0))
+    (save-excursion
+      (goto-char (point-min))
+      (while (re-search-forward "^\\*+ \\(DONE\\|CANCELLED\\)" nil t)
+        (org-archive-subtree)
+        (setq count (1+ count))))
+    (if (> count 0)
+        (message "Archived %d completed task%s" count (if (= count 1) "" "s"))
+      (message "No completed tasks found to archive"))))
 
-(defun org-alphabetical-sort ()
-  "Alphabetically sort all header levels in the current org-buffer."
+;; IMPROVED: More efficient alphabetical sorting
+(defun org-alphabetical-sort-all ()
+  "Alphabetically sort all header levels in the current org-buffer efficiently."
   (interactive)
-  (org-map-entries
-   (lambda ()
-     (org-sort-entries nil ?a))
-   nil 'tree))
+  (save-excursion
+    (goto-char (point-min))
+    (condition-case err
+        (progn
+          ;; Sort top-level entries
+          (org-sort-entries nil ?a)
+          ;; Sort all subtrees
+          (while (outline-next-heading)
+            (when (org-at-heading-p)
+              (org-sort-entries nil ?a)))
+          (message "Buffer sorted alphabetically"))
+      (error (message "Error sorting buffer: %s" (error-message-string err))))))
 
-
-;; --- This is for archiving stuff
-;; --- Helper Function ---
-;; This function checks if a given headline and its entire subtree are "DONE".
-
+;; IMPROVED: More robust archiving function with better error handling
 (defun my-org-subtree-is-all-done-p (headline)
   "Check if HEADLINE and all its descendant headlines are in a 'DONE' state.
 A headline with no TODO keyword is considered not done.
@@ -93,111 +116,156 @@ This function respects the user's `org-done-keywords` variable.
 Returns t if the entire subtree is done, nil otherwise."
   (let ((all-done t)
         (todo-kw (org-element-property :todo-keyword headline)))
-    ;; 1. Check if the headline itself is in a DONE state.
-    ;; It must have a keyword, and that keyword must be in `org-done-keywords`.
+    ;; Check if the headline itself is in a DONE state
     (unless (and todo-kw (member todo-kw org-done-keywords))
       (setq all-done nil))
-
-    ;; 2. If the headline is DONE, recursively check its children.
-    ;; We can short-circuit if all-done is already nil.
+    
+    ;; If the headline is DONE, recursively check its children
     (when all-done
-      (org-element-map (org-element-contents headline) 'headline
-        (lambda (child)
-          ;; If we find any child that is not fully done,
-          ;; we mark the parent subtree as not done and stop checking.
+      (let ((children (org-element-map (org-element-contents headline) 'headline 'identity)))
+        (dolist (child children)
           (unless (my-org-subtree-is-all-done-p child)
-            (setq all-done nil)))))
+            (setq all-done nil)
+            (cl-return)))))  ; Early exit when we find incomplete child
     all-done))
-
-
-;; --- Main Interactive Function ---
-;; This is the function you will call to perform the archival.
 
 (defun my-org-archive-fully-completed-subtrees ()
   "Archive the highest-level headlines that are DONE and have all children also DONE."
   (interactive)
-  (let ((locations-to-archive '()))
-    ;; --- PASS 1: Find the top-most, fully completed subtrees ---
-    (org-element-map (org-element-parse-buffer) 'headline
-      (lambda (headline)
-        ;; Check if the current headline and all its descendants are DONE.
-        (if (my-org-subtree-is-all-done-p headline)
+  (condition-case err
+      (let ((locations-to-archive '())
+            (buffer-modified (buffer-modified-p)))
+        ;; Find the top-most, fully completed subtrees
+        (save-excursion
+          (goto-char (point-min))
+          (org-element-map (org-element-parse-buffer) 'headline
+            (lambda (headline)
+              (when (my-org-subtree-is-all-done-p headline)
+                (push (org-element-property :begin headline) locations-to-archive)
+                t))))  ; Prevent descent into children
+        
+        ;; Archive the identified subtrees from bottom to top
+        (if locations-to-archive
             (progn
-              ;; If yes, add its location to our list.
-              (push (org-element-property :begin headline) locations-to-archive)
-              ;; And return t to prevent `org-element-map` from descending
-              ;; into its children, as the whole parent will be archived.
-              t)
-          ;; If no, return nil to allow the search to continue in its children.
-          nil)))
-
-    ;; --- PASS 2: Archive the identified subtrees from bottom to top ---
-    (if locations-to-archive
-        (progn
-          (save-excursion
-            ;; `push` creates a list of locations from the end of the buffer
-            ;; to the beginning, so we can iterate through it directly to
-            ;; ensure safe modification.
-            (dolist (location locations-to-archive)
-              (goto-char location)
-              (org-archive-subtree)))
-          (message "Archived %d fully completed subtrees." (length locations-to-archive)))
-      (message "No fully completed subtrees found to archive."))))
+              (save-excursion
+                (dolist (location (sort locations-to-archive '>))  ; Sort descending for safe deletion
+                  (goto-char location)
+                  (when (org-at-heading-p)  ; Safety check
+                    (org-archive-subtree))))
+              (message "Archived %d fully completed subtree%s" 
+                      (length locations-to-archive)
+                      (if (= (length locations-to-archive) 1) "" "s")))
+          (message "No fully completed subtrees found to archive")))
+    (error (message "Error archiving subtrees: %s" (error-message-string err)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Final Recommended Task Metadata Configuration
+;; Enhanced Task Metadata Configuration
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (with-eval-after-load 'org
-
-  ;; --- 1. Tag Configuration (with Correct Exclusivity) ---
-  ;; This setup enables the helpful visual tag buffer when you press C-c C-q.
+  ;; Enhanced tag configuration with better organization
   (setq org-tag-alist
-        '(;; The `t` at the end of the group makes it exclusive.
-          (:startgroup . "Priority")
-          ("HIGH" . ?h) ("MEDIUM" . ?m) ("LOW" . ?l) ("NoD" . ?n)
+        '((:startgroup . "Priority")
+          ("HIGH" . ?h) ("MEDIUM" . ?m) ("LOW" . ?l) ("SOMEDAY" . ?s)
           (:endgroup . t)
-
+          
+          (:startgroup . "Context")
+          ("@home" . ?H) ("@work" . ?W) ("@computer" . ?c) ("@phone" . ?p) ("@errands" . ?e)
+          (:endgroup)
+          
           (:startgroup . "Personnel")
-          ("SOLO" . ?s) ("TEAM" . ?t)
+          ("SOLO" . ?1) ("TEAM" . ?2) ("DELEGATED" . ?d)
           (:endgroup . t)
-
-          ;; This group has no `t`, so it is NOT exclusive.
+          
           (:startgroup . "Type")
-          ("Reading" . ?r) ("Writing" . ?w) ("Programming" . ?p)
+          ("Reading" . ?r) ("Writing" . ?w) ("Programming" . ?P) ("Meeting" . ?M)
           (:endgroup)))
-
-  ;; --- The line below enables "expert" mode. It is commented out ---
-  ;; --- so you get the standard, one-key-at-a-time behavior you liked. ---
-  ;; (setq org-fast-tag-selection-single-key 'expert)
-
-
-  ;; --- 2. Time Cost using the Standard 'Effort' Property (in minutes) ---
-  ;; This ensures compatibility with built-in Org functions.
-  (setq org-effort-durations '(("m" . 1)))
-
-  ;; Provides completion hints for the Effort property.
+  
+  ;; Enhanced effort configuration
+  (setq org-effort-durations '(("min" . 1) ("h" . 60) ("d" . 480)))  ; 8-hour workday
+  
   (setq org-global-properties
-        '(("Effort_ALL" . "5 10 15 20 25 30 45 60 90 120 180")))
-
-  ;; Helper function to quickly set the Effort property.
+        '(("Effort_ALL" . "0:05 0:10 0:15 0:30 0:45 1:00 1:30 2:00 3:00 4:00 6:00 8:00")))
+  
+  ;; IMPROVED: Better effort setting function with validation
   (defun my/org-set-effort-minutes (&optional minutes)
-    "Set the Effort property (in minutes) on the current Org heading."
+    "Set the Effort property (in minutes) on the current Org heading with validation."
     (interactive)
-    (unless (org-before-first-heading-p)
-      (let* ((current (org-entry-get (point) "Effort"))
-             (prompt (if current
-                         (format "Effort (minutes) [%s]: " current)
-                       "Effort (minutes): "))
-             (val (or minutes (read-number prompt nil))))
-        (org-entry-put (point) "Effort" (number-to-string (max 0 (round val))))
-        (message "Set Effort to %s minutes" (org-entry-get (point) "Effort")))))
-
-  ;; A convenient keybinding in Org buffers to set Effort quickly.
+    (if (org-before-first-heading-p)
+        (message "Not at an org heading")
+      (let* ((current-effort (org-entry-get (point) "Effort"))
+             (current-minutes (if current-effort 
+                                 (org-duration-to-minutes current-effort) 
+                                 nil))
+             (prompt (if current-minutes
+                        (format "Effort (minutes) [current: %d]: " current-minutes)
+                      "Effort (minutes): "))
+             (val (or minutes 
+                     (read-number prompt (or current-minutes 30)))))
+        (when (and val (> val 0))
+          (let ((effort-string (org-duration-from-minutes (round val))))
+            (org-entry-put (point) "Effort" effort-string)
+            (message "Set Effort to %s (%d minutes)" effort-string (round val)))))))
+  
+  ;; Enhanced keybindings in org-mode
   (define-key org-mode-map (kbd "C-c m") #'my/org-set-effort-minutes)
-
-
-  ;; --- 3. Column View with Summation ---
-  ;; This displays the Effort property and sums it up for parent tasks.
-  (setq org-columns-default-format "%50ITEM(Task) %10TODO %10Effort{+}")
-)
+  (define-key org-mode-map (kbd "C-c C-x a") #'archive-all-done-tasks)
+  (define-key org-mode-map (kbd "C-c C-x A") #'my-org-archive-fully-completed-subtrees)
+  
+  ;; Enhanced column view with better formatting
+  (setq org-columns-default-format "%50ITEM(Task) %10TODO %10Effort{+} %10CLOCKSUM %16TIMESTAMP_IA")
+  
+  ;; FIXED: Better agenda configuration without undefined functions
+  (setq org-agenda-custom-commands
+        '(("d" "Dashboard"
+           ((agenda "" ((org-deadline-warning-days 7)))
+            (todo "STARTED" ((org-agenda-overriding-header "In Progress")))
+            (todo "WAITING" ((org-agenda-overriding-header "Waiting For")))
+            (tags-todo "HIGH" ((org-agenda-overriding-header "High Priority (includes unscheduled)")
+                              (org-agenda-todo-ignore-scheduled nil)
+                              (org-agenda-todo-ignore-deadlines nil)))
+            (tags-todo "-HIGH+MEDIUM" ((org-agenda-overriding-header "Medium Priority (unscheduled)")
+                                      (org-agenda-todo-ignore-scheduled 'all)
+                                      (org-agenda-todo-ignore-deadlines 'all)))
+            (todo "TODO" ((org-agenda-overriding-header "Other TODOs (unscheduled)")
+                         (org-agenda-todo-ignore-scheduled 'all)
+                         (org-agenda-todo-ignore-deadlines 'all)
+                         (org-agenda-todo-ignore-with-date 'all)
+                         (org-agenda-skip-function '(org-agenda-skip-entry-if 'regexp ":HIGH:\\|:MEDIUM:"))))))
+          ("w" "Weekly Review"
+           ((agenda "" ((org-agenda-span 'week)
+                       (org-agenda-start-on-weekday 1)))
+            (stuck "")
+            (todo "DONE" ((org-agenda-overriding-header "Completed This Week")))))))
+  
+  ;; Clock configuration for time tracking
+  (setq org-clock-idle-time 15
+        org-clock-in-resume t
+        org-clock-persist t
+        org-clock-persist-query-resume nil
+        org-clock-auto-clock-resolution 'when-no-clock-is-running
+        org-clock-report-include-clocking-task t)
+  
+  ;; Initialize clock persistence
+  (org-clock-persistence-insinuate)
+  
+  ;; IMPROVED: Better archive configuration with directory creation
+  (let ((archive-dir (file-name-directory "~/work_in_progress/learning_experiments/org_mode/archive.org")))
+    (unless (file-exists-p archive-dir)
+      (make-directory archive-dir t)))
+  (setq org-archive-location "~/work_in_progress/learning_experiments/org_mode/archive.org::* Archived Tasks")
+  
+  ;; Capture templates for quick task entry
+  (setq org-capture-templates
+        '(("t" "Task" entry (file+headline "~/work_in_progress/learning_experiments/org_mode/1.org" "Inbox")
+           "* TODO %?\n  SCHEDULED: %t\n  %a\n")
+          ("n" "Note" entry (file+headline "~/work_in_progress/learning_experiments/org_mode/1.org" "Notes")
+           "* %? :NOTE:\n  %U\n  %a\n")
+          ("m" "Meeting" entry (file+headline "~/work_in_progress/learning_experiments/org_mode/1.org" "Meetings")
+           "* TODO %? :Meeting:\n  SCHEDULED: %t\n")))
+  
+  ;; Enable some useful minor modes
+  (add-hook 'org-mode-hook (lambda ()
+                             (visual-line-mode 1)
+                             (org-indent-mode 1)
+                             (auto-fill-mode 0))))  ;; Disable auto-fill in favor of visual-line
