@@ -3,6 +3,9 @@
 ;; Required libraries
 (require 'cl-lib)
 
+;; This is required to access various org functions
+(require 'org-element)
+
 ;; set the themes directory
 (add-to-list 'custom-theme-load-path "/home/rijan/.emacs.d/themes/")
 (load-theme 'zenburn t)
@@ -269,3 +272,4 @@ Returns t if the entire subtree is done, nil otherwise."
                              (visual-line-mode 1)
                              (org-indent-mode 1)
                              (auto-fill-mode 0))))  ;; Disable auto-fill in favor of visual-line
+
