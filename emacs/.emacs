@@ -6,6 +6,9 @@
 ;; This is required to access various org functions
 (require 'org-element)
 
+;; Set emacs to open the last session
+(desktop-save-mode 1)
+
 ;; set the themes directory
 (add-to-list 'custom-theme-load-path "/home/rijan/.emacs.d/themes/")
 (load-theme 'zenburn t)
@@ -273,3 +276,91 @@ Returns t if the entire subtree is done, nil otherwise."
                              (org-indent-mode 1)
                              (auto-fill-mode 0))))  ;; Disable auto-fill in favor of visual-line
 
+;;; --- Part 1: Helper function to map tags to their groups ---
+
+(defun custom-org-get-tag-group-map ()
+  "Create a hash table mapping tags to their group from `org-tag-alist`.
+The keys are the tags (e.g., \"High\") and the values are their
+parent group names (e.g., \"priority\")."
+  (let ((tag-map (make-hash-table :test 'equal)))
+    ;; Go through each group definition in org-tag-alist
+    (dolist (group-entry org-tag-alist)
+      ;; A group definition is a cons cell like ("group" . ("tag1" ...))
+      (when (and (consp group-entry) (consp (car group-entry)))
+        (let* ((group-name (caar group-entry))
+               (tags (cdar group-entry)))
+          ;; For each tag in the group, add it to our map
+          (dolist (tag tags)
+            (puthash tag group-name tag-map)))))
+    tag-map))
+
+
+;;; --- Part 2: Core logic to parse headlines and collect data ---
+
+(defun custom-org-collect-task-data ()
+  "Collect data from all headlines in the current Org buffer for the custom view.
+Returns a list of lists, where each inner list represents a row in the table."
+  (let ((tag-group-map (custom-org-get-tag-group-map))
+        (table-data '()))
+    ;; Use org-map-entries to iterate over all headlines in the buffer.
+    ;; The 't' argument means match all headlines.
+    (org-map-entries
+     (lambda ()
+       (let* (;; Parse the headline element at the current position
+              (element (org-element-at-point))
+              ;; --- Extract data using org-element and other helpers ---
+              (task-title (org-element-property :title element))
+              (tags (org-element-property :tags element))
+              (effort (org-entry-get (point) "Effort"))
+              (deadline-struct (org-element-property :deadline element))
+              (deadline-str (if deadline-struct
+                                (format-time-string "%m/%d/%Y" (org-element-timestamp-to-time deadline-struct))
+                              "NA"))
+              ;; --- Initialize row data with defaults ---
+              (row `(,(or task-title "NO TITLE") ; Task
+                     "NA"                         ; Personnel
+                     "NA"                         ; Type
+                     "NA"                         ; Priority
+                     ,(or effort "NA")           ; Time estimate
+                     ,deadline-str              ; <deadline>
+                     "0.00"                       ; weight (placeholder for now)
+                     )))
+
+         ;; --- Populate tag-based columns ---
+         (dolist (tag tags)
+           (let ((group (gethash tag tag-group-map)))
+             (cond
+              ((equal group "personnel") (setf (nth 1 row) tag))
+              ((equal group "type") (setf (nth 2 row) tag))
+              ((equal group "priority") (setf (nth 3 row) tag)))))
+
+         ;; Add the fully processed row to our collected data
+         (push row table-data)))
+     'all) ; Match all headlines
+    ;; Return the data, reversed to be in document order
+    (nreverse table-data)))
+
+
+;;; --- Part 3: User-facing command to generate and display the table ---
+
+(defun custom-org-create-tabular-view ()
+  "Generate a custom tabular view of the current Org buffer's tasks."
+  (interactive)
+  ;; Define the table header
+  (let* ((header '("Task" "Personnel" "Type" "Pirority" "Time estimate" "<deadline>" "weight"))
+         (data (custom-org-collect-task-data))
+         (view-buffer (get-buffer-create "*Custom Org Task View*")))
+
+    ;; Switch to the view buffer to populate it
+    (with-current-buffer view-buffer
+      (erase-buffer)
+      ;; Insert the header
+      (insert "| " (mapconcat #'identity header " | ") " |\n")
+      ;; Insert the horizontal rule
+      (insert "|-" (mapconcat (lambda (x) (make-string (length x) ?-)) header "-|-") "-|\n")
+      ;; Insert the data rows
+      (dolist (row data)
+        (insert "| " (mapconcat #'identity row " | ") " |\n")))
+
+    ;; Display the new buffer to the user
+    (switch-to-buffer view-buffer)))
