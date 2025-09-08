@@ -10,8 +10,11 @@
 (desktop-save-mode 1)
 
 ;; set the themes directory
-(add-to-list 'custom-theme-load-path "/home/rijan/.emacs.d/themes/")
+(add-to-list 'custom-theme-load-path "~/.emacs.d/themes/")
 (load-theme 'zenburn t)
+
+;; I am removing the warning message from the scratch buffer because it is no longer useful to me
+(setq initial-scratch-message nil)
 
 ;; Disable the splash screen (to enable it again, replace the t with 0)
 (setq inhibit-splash-screen t)
