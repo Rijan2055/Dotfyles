@@ -1,4 +1,4 @@
-;; -*- mode: elisp -*-
+ ;; -*- mode: elisp -*-
 
 ;; Required libraries
 (require 'cl-lib)
@@ -170,6 +170,8 @@ Returns t if the entire subtree is done, nil otherwise."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Enhanced Task Metadata Configuration
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Unverified, Rijan: The tag shortcuts (single keys like ?h for "HIGH") defined in org-tag-alist (starting at line 176) are used in the interactive tag selection prompt when you run org-set-tags-command, which is bound to C-c C-q by default in Org mode—no custom binding is needed in the config.
 
 (with-eval-after-load 'org
   ;; Enhanced tag configuration with better organization
